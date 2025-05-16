@@ -8,7 +8,7 @@
       font-family: NanumSquareRound, sans-serif;
       text-align: center;
       margin: 40px;
-      user-select: none; /* 드래그 중 텍스트 선택 방지 */
+      user-select: none;
     }
     #svg-frame {
       width: 90%;
@@ -19,6 +19,7 @@
       display: block;
       overflow: hidden;
       cursor: grab;
+      touch-action: none; /* 터치 기본 동작 막기 */
     }
   </style>
 </head>
@@ -66,18 +67,33 @@
   const minScale = 0.5;
   const maxScale = 4;
 
-  // 현재 변환 상태
   let translateX = 0;
   let translateY = 0;
 
-  // 드래그 상태
   let isDragging = false;
   let dragStartX = 0;
   let dragStartY = 0;
   let lastTranslateX = 0;
   let lastTranslateY = 0;
 
-  // 초기화 함수
+  // 핀치 줌 관련 변수
+  let isPinching = false;
+  let pinchStartDist = 0;
+  let pinchStartScale = 1;
+  let pinchCenter = { x: 0, y: 0 };
+  let lastTranslateDuringPinch = { x: 0, y: 0 };
+
+  function getDistance(touch1, touch2) {
+    return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
+  }
+
+  function getCenter(touch1, touch2) {
+    return {
+      x: (touch1.clientX + touch2.clientX) / 2,
+      y: (touch1.clientY + touch2.clientY) / 2
+    };
+  }
+
   function resetTransform() {
     scale = 1;
     translateX = 0;
@@ -91,10 +107,8 @@
     const svg = svgDoc.querySelector('svg');
     if (!svg) return;
 
-    // 초기 transform 스타일
     updateTransform();
 
-    // 클릭 설명용 요소 설정
     const targets = [
       { id: 'tclass', text: '여기는 교무실입니다.' },
       { id: 'class308', text: '여기는 3학년 8반 교실입니다.' },
@@ -112,16 +126,14 @@
       }
     });
 
-    // 휠 이벤트 (마우스 위치 기준 확대/축소)
+    // 휠 확대/축소
     svg.addEventListener('wheel', (event) => {
       event.preventDefault();
 
       const rect = svg.getBoundingClientRect();
-      // 마우스 위치 상대 좌표 (svg 내 좌표)
       const offsetX = event.clientX - rect.left;
       const offsetY = event.clientY - rect.top;
 
-      // 이전 스케일과 새 스케일
       let newScale = scale;
       if (event.deltaY < 0) {
         newScale = Math.min(scale + scaleStep, maxScale);
@@ -129,10 +141,8 @@
         newScale = Math.max(scale - scaleStep, minScale);
       }
 
-      // 스케일 변화 비율
       const scaleRatio = newScale / scale;
 
-      // translate 조정 (마우스 포인터 기준 확대/축소 위치 고정)
       translateX = offsetX - scaleRatio * (offsetX - translateX);
       translateY = offsetY - scaleRatio * (offsetY - translateY);
 
@@ -140,7 +150,7 @@
       updateTransform();
     });
 
-    // 드래그 시작
+    // 마우스 드래그
     svg.addEventListener('mousedown', (event) => {
       event.preventDefault();
       isDragging = true;
@@ -151,7 +161,6 @@
       svg.style.cursor = 'grabbing';
     });
 
-    // 드래그 이동
     svg.addEventListener('mousemove', (event) => {
       if (!isDragging) return;
       event.preventDefault();
@@ -164,7 +173,6 @@
       updateTransform();
     });
 
-    // 드래그 끝
     svg.addEventListener('mouseup', (event) => {
       if (!isDragging) return;
       event.preventDefault();
@@ -172,16 +180,87 @@
       svg.style.cursor = 'grab';
     });
 
-    // 마우스가 SVG 밖으로 나갔을 때 드래그 종료
     svg.addEventListener('mouseleave', (event) => {
       if (!isDragging) return;
       event.preventDefault();
       isDragging = false;
       svg.style.cursor = 'grab';
     });
+
+    // 터치 이벤트: 드래그 및 핀치 줌
+
+    svg.addEventListener('touchstart', (event) => {
+      if (event.touches.length === 1) {
+        // 한 손가락 드래그 시작
+        isDragging = true;
+        dragStartX = event.touches[0].clientX;
+        dragStartY = event.touches[0].clientY;
+        lastTranslateX = translateX;
+        lastTranslateY = translateY;
+        svg.style.cursor = 'grabbing';
+      } else if (event.touches.length === 2) {
+        // 두 손가락 핀치 시작
+        isPinching = true;
+        pinchStartDist = getDistance(event.touches[0], event.touches[1]);
+        pinchStartScale = scale;
+        pinchCenter = getCenter(event.touches[0], event.touches[1]);
+        lastTranslateDuringPinch = { x: translateX, y: translateY };
+      }
+    });
+
+    svg.addEventListener('touchmove', (event) => {
+      if (isPinching && event.touches.length === 2) {
+        event.preventDefault();
+        const newDist = getDistance(event.touches[0], event.touches[1]);
+        let newScale = pinchStartScale * (newDist / pinchStartDist);
+        newScale = Math.min(maxScale, Math.max(minScale, newScale));
+
+        const scaleRatio = newScale / scale;
+
+        // 핀치 중심 기준으로 translate 조정
+        translateX = pinchCenter.x - scaleRatio * (pinchCenter.x - lastTranslateDuringPinch.x);
+        translateY = pinchCenter.y - scaleRatio * (pinchCenter.y - lastTranslateDuringPinch.y);
+
+        scale = newScale;
+        updateTransform();
+
+      } else if (isDragging && event.touches.length === 1) {
+        event.preventDefault();
+
+        const dx = event.touches[0].clientX - dragStartX;
+        const dy = event.touches[0].clientY - dragStartY;
+
+        translateX = lastTranslateX + dx;
+        translateY = lastTranslateY + dy;
+        updateTransform();
+      }
+    });
+
+    svg.addEventListener('touchend', (event) => {
+      if (event.touches.length === 0) {
+        // 모든 터치 종료
+        isDragging = false;
+        isPinching = false;
+        svg.style.cursor = 'grab';
+      } else if (event.touches.length === 1) {
+        // 두 손가락에서 한 손가락으로 전환
+        isPinching = false;
+        isDragging = true;
+        dragStartX = event.touches[0].clientX;
+        dragStartY = event.touches[0].clientY;
+        lastTranslateX = translateX;
+        lastTranslateY = translateY;
+        svg.style.cursor = 'grabbing';
+      }
+    });
+
+    svg.addEventListener('touchcancel', (event) => {
+      isDragging = false;
+      isPinching = false;
+      svg.style.cursor = 'grab';
+    });
   });
 
-  // transform 속성 업데이트 함수
   function updateTransform() {
     const svgDoc = iframe.contentDocument || iframe.contentWindow.document;
     if (!svgDoc) return;
