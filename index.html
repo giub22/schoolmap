@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>덕소고 방사선&전자파 위험 지도</title>
+  <style>
+    body {
+      font-family: NanumSquareRound, sans-serif;
+      text-align: center;
+      margin: 40px;
+      user-select: none; /* 드래그 중 텍스트 선택 방지 */
+    }
+    #svg-frame {
+      width: 90%;
+      max-width: 2500px;
+      height: 600px;
+      border: 1px solid #ccc;
+      margin: 0 auto;
+      display: block;
+      overflow: hidden;
+      cursor: grab;
+    }
+  </style>
+</head>
+<body>
+
+<h1>덕소고 방사선&전자파 위험 지도</h1>
+
+<div id="building-buttons">
+  <button onclick="selectBuilding('gm')">근면관</button>
+  <button onclick="selectBuilding('sm')">소망관</button>
+  <button onclick="selectBuilding('md')">믿음관</button>
+</div>
+
+<div id="floor-buttons" style="display:none; margin-top: 20px;">
+  <button onclick="changeFloor(1)">1층</button>
+  <button onclick="changeFloor(2)">2층</button>
+  <button onclick="changeFloor(3)">3층</button>
+  <button onclick="changeFloor(4)">4층</button>
+</div>
+
+<iframe id="svg-frame" src="gm_floor1.svg" frameborder="0" scrolling="no"></iframe>
+
+<div id="description" style="margin-top: 20px; font-size: 18px; color: #333;"></div>
+
+<script>
+  let currentBuilding = 'gm';
+
+  function selectBuilding(code) {
+    currentBuilding = code;
+    document.getElementById('floor-buttons').style.display = 'block';
+    changeFloor(1);
+  }
+
+  function changeFloor(floorNum) {
+    const iframe = document.getElementById('svg-frame');
+    iframe.src = `${currentBuilding}_floor${floorNum}.svg`;
+    document.getElementById('description').innerText = '';
+    resetTransform();
+  }
+
+  const iframe = document.getElementById('svg-frame');
+
+  let scale = 1;
+  const scaleStep = 0.1;
+  const minScale = 0.5;
+  const maxScale = 4;
+
+  // 현재 변환 상태
+  let translateX = 0;
+  let translateY = 0;
+
+  // 드래그 상태
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let lastTranslateX = 0;
+  let lastTranslateY = 0;
+
+  // 초기화 함수
+  function resetTransform() {
+    scale = 1;
+    translateX = 0;
+    translateY = 0;
+  }
+
+  iframe.addEventListener('load', () => {
+    const svgDoc = iframe.contentDocument || iframe.contentWindow.document;
+    if (!svgDoc) return;
+
+    const svg = svgDoc.querySelector('svg');
+    if (!svg) return;
+
+    // 초기 transform 스타일
+    updateTransform();
+
+    // 클릭 설명용 요소 설정
+    const targets = [
+      { id: 'tclass', text: '여기는 교무실입니다.' },
+      { id: 'class308', text: '여기는 3학년 8반 교실입니다.' },
+      { id: 'class311', text: '여기는 3학년 11반 교실입니다.' },
+      { id: 'class303', text: '여기는 3학년 3반 교실입니다.' }
+    ];
+
+    targets.forEach(({ id, text }) => {
+      const el = svgDoc.getElementById(id);
+      if (el) {
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', () => {
+          document.getElementById('description').innerText = text;
+        });
+      }
+    });
+
+    // 휠 이벤트 (마우스 위치 기준 확대/축소)
+    svg.addEventListener('wheel', (event) => {
+      event.preventDefault();
+
+      const rect = svg.getBoundingClientRect();
+      // 마우스 위치 상대 좌표 (svg 내 좌표)
+      const offsetX = event.clientX - rect.left;
+      const offsetY = event.clientY - rect.top;
+
+      // 이전 스케일과 새 스케일
+      let newScale = scale;
+      if (event.deltaY < 0) {
+        newScale = Math.min(scale + scaleStep, maxScale);
+      } else {
+        newScale = Math.max(scale - scaleStep, minScale);
+      }
+
+      // 스케일 변화 비율
+      const scaleRatio = newScale / scale;
+
+      // translate 조정 (마우스 포인터 기준 확대/축소 위치 고정)
+      translateX = offsetX - scaleRatio * (offsetX - translateX);
+      translateY = offsetY - scaleRatio * (offsetY - translateY);
+
+      scale = newScale;
+      updateTransform();
+    });
+
+    // 드래그 시작
+    svg.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      isDragging = true;
+      dragStartX = event.clientX;
+      dragStartY = event.clientY;
+      lastTranslateX = translateX;
+      lastTranslateY = translateY;
+      svg.style.cursor = 'grabbing';
+    });
+
+    // 드래그 이동
+    svg.addEventListener('mousemove', (event) => {
+      if (!isDragging) return;
+      event.preventDefault();
+
+      const dx = event.clientX - dragStartX;
+      const dy = event.clientY - dragStartY;
+
+      translateX = lastTranslateX + dx;
+      translateY = lastTranslateY + dy;
+      updateTransform();
+    });
+
+    // 드래그 끝
+    svg.addEventListener('mouseup', (event) => {
+      if (!isDragging) return;
+      event.preventDefault();
+      isDragging = false;
+      svg.style.cursor = 'grab';
+    });
+
+    // 마우스가 SVG 밖으로 나갔을 때 드래그 종료
+    svg.addEventListener('mouseleave', (event) => {
+      if (!isDragging) return;
+      event.preventDefault();
+      isDragging = false;
+      svg.style.cursor = 'grab';
+    });
+  });
+
+  // transform 속성 업데이트 함수
+  function updateTransform() {
+    const svgDoc = iframe.contentDocument || iframe.contentWindow.document;
+    if (!svgDoc) return;
+    const svg = svgDoc.querySelector('svg');
+    if (!svg) return;
+
+    svg.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+  }
+</script>
+
+</body>
+</html>
